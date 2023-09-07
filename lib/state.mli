@@ -77,7 +77,7 @@ type 'a t = private
   | Finished of ('a, exn) result
   | Suspended : ('a, 'b) continuation * 'a Effect.t -> 'b t
 
-val make : ('a -> 'b) -> 'a -> 'b t
+val make : ('a -> 'b) -> int -> 'a -> 'b t
 (** [make fn value] makes a new {i function state} by executing the function
     with the given argument. *)
 

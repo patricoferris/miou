@@ -226,14 +226,17 @@ module Promise = struct
     List.iter (fun res -> Sequence.push res resources) ress;
     Option.iter (disown_resources ress) parent;
     let parent = Option.map (fun parent -> Pack parent) parent in
-    {
+    let v = {
       uid= Uid.gen ()
     ; runner
     ; state= Atomic.make Pending
     ; parent
     ; children= Queue.create ()
     ; resources
-    }
+    } in
+    Meio_runtime_events.note_created v.uid Task;
+    Option.iter (fun (Pack p) ->  Meio_runtime_events.note_parent ~child:v.uid ~parent:p.uid) parent;
+    v
 
   let pack : type a. a t -> pack = fun prm -> Pack prm
 
@@ -273,6 +276,7 @@ type _ Effect.t += Domain_uid : Domain_uid.t Effect.t
 type _ Effect.t += Domain_count : int Effect.t
 type _ Effect.t += Spawn : ty * resource list * (unit -> 'a) -> 'a t Effect.t
 type _ Effect.t += Yield : unit Effect.t
+type _ Effect.t += Ctx : pack Effect.t
 type _ Effect.t += Cancel : 'a t -> unit Effect.t
 type _ Effect.t += Domains : Domain_uid.t list Effect.t
 type _ Effect.t += Random : Random.State.t Effect.t
@@ -680,6 +684,7 @@ module Domain = struct
           let uids = List.map (fun { uid; _ } -> uid) pool.domains in
           k (State.Send uids)
       | Random -> k (State.Send domain.g)
+      | Ctx -> k (State.Send (Promise.pack current))
       | Spawn (Concurrent, resources, fn) ->
           let runner = domain.uid in
           let prm = Promise.make ~resources ~runner ~parent:current () in
@@ -697,6 +702,7 @@ module Domain = struct
           k (State.Send prm)
       | Spawn (Parallel runner, resources, fn) ->
           let prm = Promise.make ~resources ~runner ~parent:current () in
+          Meio_runtime_events.note_log prm.uid "para runner";
           Logs.debug (fun m ->
               m "[%a] spawn a new task %a" Domain_uid.pp domain.uid Promise.pp
                 prm);
@@ -898,7 +904,7 @@ module Domain = struct
              [hash_of_blob] has no "quanta"/effect. Running this function
              "multiple" times in a loop is more expensive than running it once
              and already getting the [Finished] state. *)
-          handle pool domain prm (State.make fn ())
+          handle pool domain prm (State.make fn prm.uid ())
       | Suspended (prm, state) ->
           let perform = perform pool domain (Promise.pack prm) in
           let state = State.run ~quanta:domain.quanta ~perform state in
@@ -1126,18 +1132,31 @@ let call ?orphans ?(give = []) fn =
   Option.iter (Sequence.push prm) orphans;
   prm
 
-let call_cc ?orphans ?(give = []) fn =
+let call_cc ?orphans ?(give = []) ?(loc=Meio_runtime_events.get_caller ()) fn =
   let prm = Effect.perform (Spawn (Concurrent, give, fn)) in
+  Meio_runtime_events.note_location prm.uid loc;
+  (match prm.parent with
+  | Some (Pack packed) ->
+    Meio_runtime_events.note_parent ~child:prm.uid ~parent:packed.uid;
+  | None -> ()
+  );
   Option.iter (Sequence.push prm) orphans;
   prm
 
 let make fn = Effect.perform (Syscall fn)
 let suspend syscall = Effect.perform (Suspend syscall)
-let await prm = Effect.perform (Await prm)
+let await prm =
+  let v = Effect.perform (Await prm) in
+  let ex = match v with Ok _ -> None | Error exn -> Some exn in
+  Meio_runtime_events.note_resolved ~ex prm.uid;
+  v
 let yield () = Effect.perform Yield
 let cancel prm = Effect.perform (Cancel prm)
 let await_all prms = Effect.perform (Await_all prms)
 let uid (Syscall (uid, _) : _ syscall) = uid
+let meow s =
+  let Pack prm = Effect.perform (Ctx) in
+  Meio_runtime_events.note_log prm.uid s
 
 let parallel fn tasks =
   let domains = domains () in
@@ -1210,6 +1229,7 @@ let run ?(quanta = quanta) ?(events = Fun.const dummy_events)
   Domain.Uid.reset ();
   let dom0 = Domain.make ~quanta ~g events in
   let prm0 = Promise.make ~resources:[] ~runner:dom0.uid () in
+  Meio_runtime_events.note_name prm0.uid "root";
   Domain.add_task dom0 (Arrived (prm0, fn));
   let pool, domains = Pool.make ~quanta ~g ?domains events in
   while Promise.is_pending prm0 do

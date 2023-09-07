@@ -4,75 +4,75 @@
     provide an interface for launching tasks concurrently and/or in parallel
     with others. Miou proposes a minimal, homogeneous, simple and conservative
     interface.
-    
+
     This presentation will allow us to introduce several concepts and what Miou
     can offer.
-    
+
     {2 Definitions of terms.}
-    
+
     {3 A task.}
-    
+
     A task is a function on which several operations required by Miou exist:
     + a task can be launched/executed
     + a task can be stopped (suspended)
     + stopping a task produces a state of the task
     + a task can be restarted from its state
-    
+
     The {!module:State} module offers a more concrete definition of these
     operations with what the OCaml 5 {!module:Effect} module offers. Suspension
     is the fundamental operation in the implementation of a scheduleur. We have
     therefore chosen to be able to suspend a task as soon as it emits an effect.
-    
+
     This is perhaps the most important thing to remember about this definition:
     a task is suspended as soon as it emits {b one} effect.
-    
+
     {3 Suspension.}
-    
+
     Suspension consists of obtaining a {i state} for the task which we can be
     "stored" and which allows us to {i continue} the task. The task has stopped
     at a specific point and its state consists roughly of:
     - the point where the task stopped
     - a particular state of the memory required to perform the task
     - and the disruptive element of the suspension: the effect.
-    
+
     From this state, Miou can continue or {i discontinue} the task. Continuing
     the task consists of restarting the execution of the task from its stopping
     point. Discontinuing a task consists of not restarting the task and
     transitioning the state of the task to an error (in this case, the raising
     of an exception).
-    
+
     {3:quanta A quanta.}
-    
+
     A {i quanta} is a measure used to limit the execution of a task. Usually,
     the {i quanta} used is time: you limit the execution time of a task to
     100ms, for example, and then suspend the task and execute another one.
-    
+
     As far as Miou is concerned, the {i quanta} used is the production of
     effects. For more details on the reasons for this, please refer to the
     {!module:State} module. The user can modify the number of {i quantas}
     allocated to tasks. By default, Miou only allocates one {i quanta} per task
     so that they can be reordered later. However, it may be appropriate for a
     task to consume a maximum of 10, 20 or 1000 {i quantas}.
-    
+
     {3 Concurrency.}
-    
+
     Concurrency consists of swapping the execution of several tasks on the same
     core. The aim of the scheduler is to have several tasks, some of which
     depend on the result of others, and to schedule these tasks in a certain
     execution order in order to obtain the final result.
-    
+
     It is important to note that, in the context of concurrency, tasks have
     exclusive access to memory as only one core is able to execute them: there
     cannot be 2 tasks executing at the same time. However, the order in which
     the tasks are executed is decided by the scheduler.
-    
+
     The policy of concurrency can be to "prioritise" some tasks so that other
     tasks, which depend on the result of the first tasks, can be unblocked. In
     our case, Miou does {b not} prioritise tasks but has a re-scheduling and
     execution policy which ensures that all tasks have the same opportunity to
     be executed (and that those producing a result needed by others can be
     executed just as well as the others).
-    
+
     The user can launch a concurrently-running task using {!val:call_cc}. The
     function returns {i a promise} ({!type:t}), {i a witness} to the execution
     of the task. This witness can be used to obtain the result of the task:
@@ -85,14 +85,14 @@
     ]}
 
     {3 Parallelism.}
-    
+
     Since OCaml 5, it has been possible to run functions in parallel. In other
     words, they can run "at the same time" using several cores. The advantage of
     parallelism is that execution time can be shared between several cores. For
     example, if 2 tasks require 100ms to calculate a result, in a concurrent
     context we would need 200ms to complete these tasks, whereas we would only
     need 2 cores and 100ms to complete them in parallel.
-    
+
     Earlier, we mentioned exclusive access to memory by tasks if they are
     concurrent. Unfortunately, this is no longer true in parallel. If you want
     to keep this property for certain values, you should use the
@@ -103,9 +103,9 @@
     type as that produced by {!val:call_cc}.
 
     We recommend that you let Miou decide how many domains to allocate.
-    
+
     {4 Domains.}
-    
+
     Miou is able to use several cores and thus launch tasks in parallel because
     it is able to create {!type:Domain.t}. However, the number of domains is
     {b limited}: it is counter-productive to launch 10 domains when we only have
@@ -114,14 +114,14 @@
     Miou also differentiates between [dom0] (the main domain that runs your
     program) and the other domains. The main difference is that {!val:call} (or
     {!val:parallel}) will {b never} assign a new task in parallel to [dom0].
-    
+
     {3 Synchronisation points.}
-    
+
     We mentioned earlier that some tasks can "wait" for the results of other
     tasks. We call these "synchronisation points". Since tasks can run
     concurrently and/or in parallel, Miou offers functions where a particular
     state of the tasks (the termination state) is expected.
-    
+
     Miou will then be in a waiting state (it will simply observe the state of
     the said task until this state has changed):
     - while waiting for a concurrent task, Miou will then re-schedule and
@@ -135,132 +135,132 @@
     ({!val:await_all}) using their promises. It is also possible to wait for one
     of the available tasks ({!val:await_first} or {!val:await_one}). The result
     of the first task to finish will be given when it is used.
-    
+
     {3 System events.}
-    
+
     Another waiting state exists: waiting for a system event, such as waiting
     for a TCP/IP connection to arrive. Miou provides the ability for users to
     implement these system event synchronisation points themselves. We recommend
     reading the implementation of {!page:sleepers} with Miou to find out more
     about this.
-    
+
     {!module:Miou_unix} implements some of these points, such as waiting to
     receive information ([read]) or waiting to be able to write information
     ([write]), as well as other system events.
-    
+
     What makes these points of synchronisation of system events different from
     waiting for the result of a {i pure} task (which does not interact with the
     system) is that we cannot calculate the {i waiting time}. We can wait a few
     milliseconds or 1 hour for the arrival of a TCP/IP connection, for example.
-    
+
     This makes it difficult to prioritise tasks in relation to each other, as
     we lack too much information to find the optimum order for executing tasks.
     Once again, Miou doesn't prioritise tasks.
-    
+
     {2 The "round-robin" scheduler.}
-    
+
     Miou implements what is known as a round-robin scheduler. This is a
     scheduler with very simple rules:
     + if a task arrives, execute it up to a certain {i quanta}
     + if the task has finished, give the result
     + if not, re-order the task at the end of the to-do list
     + take the next task and repeat the operation.
-    
+
     The special feature of a round-robin scheduler is that it does not
     prioritise tasks according to their status. It simply allocates {b a fair}
     amount of time/{i quanta} of domain usage to all tasks (a bit like
     communism).
-    
+
     So, by default, Miou suggests that a task can only emit one and only one
     effect, which is our {!section:quanta}. Most of the functions proposed by
     Miou produce an effect. Miou then reorders the task at the end of the to-do
     list and repeats the operation.
-    
+
     {3 Availability.}
-    
+
     The advantage of this type of task management policy is that it increases
     the availability of tasks. For example, 2 tasks waiting for 2 system events
     (the reception of a TCP/IP packet and the waiting for a new TCP/IP
     connection) will have the same execution time allocated to them.
-    
+
     This availability means that Miou is more {i in-sync} with system events. In
     fact, the system keeps these events until the application space requests
     them (with [select()]) and consumes them ([read()], [accept()], etc.).
     Miou's objective is to ensure that several tasks (dependent on these events)
     can all respond to the consumption of these events from the system, without
     one of them being able to have exclusive execution time on a domain.
-    
+
     In this way, a Miou application can respond to the consumption of a [read()]
     and an [accept()] without one of these tasks blocking the other - even
     though the two correspond to completely different execution paths. Finally,
     a Miou application {b is} available from a system and network point of view.
-    
+
     {3 Time wasted.}
-    
+
     The disadvantage of such a policy is the execution of pending tasks. This is
     because Miou does not discriminate between tasks: it does not prioritise
     tasks that can do something over those that are waiting.
-    
+
     So it could happen that Miou "wastes" its time trying to execute pending
     tasks for 1 {i quanta} and that the result of this execution comes to
     nothing (because the result is not yet available).
-    
+
     This non-discriminatory approach is important because if we consider waiting
     for system events, it becomes difficult to prioritise tasks fairly since, by
     definition, system events can occur at any time. Miou therefore responds to
     the availability of tasks to consume system events. It does not address the
     optimal scheduling of {i pure} tasks.
-    
+
     {3 The famine problem.}
-    
+
     The prioritisation of tasks coupled with the limited use of domains can lead
     to a starvation problem. Indeed, through prioritisation, a task can be
     excluded from using one of the available domains - because it has been
     decided that other tasks have priority there. However, this excluded task
     may be necessary (and even central) to the completion of our program.
-    
+
     In this case, we talk about a starvation problem. The round-robin scheduler
     solves this problem by not discriminating between tasks and by allocating
     them a fair execution time on the domains. The round-robin scheduler is
     {i starvation-free}. Even if it appears that Miou wasting time executing
     tasks that would not produce any results, the central task required to
     terminate our program would be invariably run in all cases.
-    
+
     {3 Tuning.}
-    
+
     It is possible to modify Miou's behaviour depending on the purpose of your
     program. Choosing to allow a task to emit only one effect can have serious
     implications for the application's performance. Miou therefore suggests that
     the user can decide how many {i quantas} that tasks can consume.
-    
+
     In this case, for certain so-called {i pure} applications, it can be
     interesting to increase this number. We recommend that you read the
     {{!page:merkle}merkle-tree} tutorial to understand all the subtleties.
-    
+
     {2 Rules}
-    
+
     Over and above its design, Miou imposes rules to assist the programmer in
     designing his/her application. These rules are explained here. If the
     developer does not respect these rules, Miou raises an {i uncatchable}
     exception. In other words, an exception that the user has {b not} the
     definition of and cannot ignore.
-    
+
     {3 Rule 1, wait for all your tasks.}
-    
+
     It is forbidden to forget your children. The creation of a task necessarily
     implies that the developer waits ({!val:await}) or cancels ({!val:cancel})
     the task afterwards:
-    
+
     {[
       # Miou.run @@ fun () -> Miou.call_cc (Fun.const ()) ;;
       Exception: Miou.Still_has_children.
     ]}
-    
+
     {3 Rule 2, only wait for direct children.}
-    
+
     You can only wait for your direct children. Transferring a promise to
     another task so that it can wait for it is illegal:
-    
+
     {[
       # Miou.run @@ fun () ->
         let p = Miou.call_cc (Fun.const ()) in
@@ -268,15 +268,15 @@
         Miou.await_all [ p; q ] |> ignore
       Exception: Miou.Not_a_child.
     ]}
-    
+
     {3 Rule 3, a task can only be awaited or cancelled.}
-    
+
     Miou only allows you to wait for or cancel a task. It is also impossible to
     detach a task. For more information on this subject, we recommend reading
     the {!section:orphans} section.
-    
+
     {3 Rule 4, a task only finishes after its children have finished.}
-    
+
     By extension, as soon as a task is finished, all its children are finished
     too. The same applies to cancellation. If you cancel a task, you also cancel
     its children.
@@ -476,7 +476,7 @@ val care : 'a orphans -> 'a t option
 (** {2 Launch a promise.} *)
 
 val call_cc :
-  ?orphans:'a orphans -> ?give:Ownership.t list -> (unit -> 'a) -> 'a t
+  ?orphans:'a orphans -> ?give:Ownership.t list -> ?loc:string -> (unit -> 'a) -> 'a t
 (** [call_cc fn] (for Call with Current Continuation) returns a promise
     {!type:t} representing the state of the task given as an argument. The task
     will be carried out {b concurrently} with the other tasks. *)
@@ -781,6 +781,9 @@ val cancel : 'a t -> unit
     a certain amount of time (the time it takes for the domains to synchronise)
     which should not affect the opportunity for other concurrent tasks to run.
 *)
+
+val meow : string -> unit
+(** Logs a statement on the current fiber. *)
 
 val run :
      ?quanta:int

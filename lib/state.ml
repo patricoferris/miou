@@ -1,23 +1,26 @@
-type ('a, 'b) continuation = ('a, 'b) Effect.Shallow.continuation
+type ('a, 'b) continuation =
+{ k : ('a, 'b) Effect.Shallow.continuation; id : int }
 
 type 'a t =
   | Finished of ('a, exn) result
   | Suspended : ('a, 'b) continuation * 'a Effect.t -> 'b t
 
-let effc eff k = Suspended (k, eff)
+let effc eff id k = Suspended ({ k; id }, eff)
 
-let handler_continue =
+let handler_continue id =
   let open Effect.Shallow in
   let retc value = Finished (Ok value) in
   let exnc exn = Finished (Error exn) in
   let effc :
       type c. c Effect.t -> ((c, 'a) Effect.Shallow.continuation -> 'b) option =
-   fun effect -> Some (effc effect)
+   fun effect -> Some (effc effect id)
   in
   { retc; exnc; effc }
 
 let continue_with : ('c, 'a) continuation -> 'c -> 'a t =
- fun k v -> Effect.Shallow.continue_with k v handler_continue
+ fun k v ->
+  Meio_runtime_events.note_switch k.id;
+  Effect.Shallow.continue_with k.k v (handler_continue k.id)
 
 let handler_discontinue exn =
   let open Effect.Shallow in
@@ -31,16 +34,16 @@ let handler_discontinue exn =
   { retc; exnc; effc }
 
 let discontinue_with : ('c, 'a) continuation -> exn -> 'a t =
- fun k exn -> Effect.Shallow.discontinue_with k exn (handler_discontinue exn)
+ fun k exn -> Effect.Shallow.discontinue_with k.k exn (handler_discontinue exn)
 
 let suspended_with : ('c, 'a) continuation -> 'c Effect.t -> 'a t =
  fun k e -> Suspended (k, e)
 
 let pure res = Finished res
 
-let make k v =
+let make k id v =
   let k = Effect.Shallow.fiber k in
-  continue_with k v
+  continue_with { k; id } v
 
 type 'a step =
   | Send of 'a
