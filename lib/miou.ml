@@ -16,6 +16,8 @@ module Domain_uid = Gen.Make ()
 module Resource_uid = Gen.Make ()
 module Syscall_uid = Gen.Make ()
 
+module Backoff = Miou_backoff.Backoff
+
 let miou_assert = Sys.getenv_opt "MIOU_ASSERT"
 
 let miou_assert : bool -> 'a =

@@ -1,5 +1,5 @@
 (library
- (name backoff)
+ (name miou_backoff)
  (public_name miou.backoff)
  (modules backoff))
 

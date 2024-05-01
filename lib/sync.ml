@@ -13,6 +13,8 @@
    THIS SOFTWARE.
 *)
 
+module Backoff = Miou_backoff.Backoff
+
 module Trigger : sig
   type state =
     | Signaled
